@@ -3,6 +3,7 @@ package com.example;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.nio.file.FileVisitResult;
@@ -17,7 +18,7 @@ import java.util.Map;
 
 public class ApplicationContext {
 
-    private Map<String,BeanDefinition> beanDefinitionMap = new HashMap<>();
+    private Map<String, BeanDefinition> beanDefinitionMap = new HashMap<>();
 
     private Map<String, Object> ioc = new HashMap<>();
 
@@ -27,15 +28,20 @@ public class ApplicationContext {
 
 
     public void initContext(String packageName) throws IOException {
-        scanPackage(packageName).stream().filter(this::scanCreate).map(this::wrapper).forEach(this::doCreateBean);
+        scanPackage(packageName).stream().filter(this::scanCreate).forEach(this::wrapper);
+        beanDefinitionMap.values().forEach(this::createBean);
     }
 
     protected boolean scanCreate(Class<?> type) {
         return type.isAnnotationPresent(Component.class);
     }
 
-    protected void createBean(BeanDefinition beanDefinition) {
-
+    protected Object createBean(BeanDefinition beanDefinition) {
+        String name = beanDefinition.getName();
+        if (ioc.containsKey(name)) {
+            return ioc.get(name);
+        }
+        return doCreateBean(beanDefinition);
     }
 
     protected BeanDefinition wrapper(Class<?> type) {
@@ -72,33 +78,53 @@ public class ApplicationContext {
         return classList;
     }
 
-    private void doCreateBean(BeanDefinition beanDefinition) {
+    private Object doCreateBean(BeanDefinition beanDefinition) {
         Constructor<?> constructor = beanDefinition.getConstructor();
         Object bean = null;
         try {
             bean = constructor.newInstance();
+            autowiredBean(bean, beanDefinition);
             Method postConstructMethod = beanDefinition.getPostConstructMethod();
-            if (postConstructMethod!=null) {
+            if (postConstructMethod != null) {
                 postConstructMethod.invoke(bean);
             }
+            ioc.put(beanDefinition.getName(), bean);
+
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        ioc.put(beanDefinition.getName(), bean);
+        return bean;
+    }
+
+    private void autowiredBean(Object bean, BeanDefinition beanDefinition) throws IllegalAccessException {
+        for (Field autowiredField : beanDefinition.getAutowiredFields()) {
+            autowiredField.setAccessible(true);
+            Object autowiredBean = null;
+            autowiredField.set(bean, getBean(autowiredField.getType()));
+        }
     }
 
     public Object getBean(String name) {
-        return this.ioc.get(name);
+        if (name == null) {
+            return null;
+        }
+        Object bean = this.ioc.get(name);
+        if (bean != null) {
+            return bean;
+        }
+        if (beanDefinitionMap.containsKey(name)) {
+            return createBean(beanDefinitionMap.get(name));
+        }
+        return null;
 
     }
 
     public <T> T getBean(Class<T> beanType) {
-        return this.ioc.values().stream().filter(bean -> beanType.isAssignableFrom(bean.getClass())).map(bean -> (T) bean).findAny().orElseGet(null);
-
+        String beanName = this.beanDefinitionMap.values().stream().filter(bd -> beanType.isAssignableFrom(bd.getBeanType())).map(BeanDefinition::getName).findFirst().orElse(null);
+        return (T) getBean(beanName);
     }
 
     public <T> List<T> getBeans(Class<T> beanType) {
-        return this.ioc.values().stream().filter(bean -> beanType.isAssignableFrom(bean.getClass())).map(bean -> (T) bean).toList();
-
+        return this.beanDefinitionMap.values().stream().filter(bd -> beanType.isAssignableFrom(bd.getBeanType())).map(BeanDefinition::getName).map(this::getBean).map(bean -> (T) bean).toList();
     }
 }
