@@ -1,6 +1,7 @@
 package com.example.sub;
 
 import com.example.Component;
+import com.example.PostConstruct;
 
 @Component
 public class Cat {

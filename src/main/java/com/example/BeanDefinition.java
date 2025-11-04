@@ -1,7 +1,6 @@
 package com.example;
 
 import com.example.sub.Autowired;
-import com.example.sub.PostConstruct;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;

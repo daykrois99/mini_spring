@@ -20,6 +20,8 @@ public class ApplicationContext {
 
     private Map<String, BeanDefinition> beanDefinitionMap = new HashMap<>();
 
+    private Map<String, Object> loadingIoc = new HashMap<>();
+
     private Map<String, Object> ioc = new HashMap<>();
 
     public ApplicationContext(String packageName) throws IOException {
@@ -40,6 +42,9 @@ public class ApplicationContext {
         String name = beanDefinition.getName();
         if (ioc.containsKey(name)) {
             return ioc.get(name);
+        }
+        if (loadingIoc.containsKey(name)) {
+            return loadingIoc.get(name);
         }
         return doCreateBean(beanDefinition);
     }
@@ -83,12 +88,13 @@ public class ApplicationContext {
         Object bean = null;
         try {
             bean = constructor.newInstance();
+            loadingIoc.put(beanDefinition.getName(), bean);
             autowiredBean(bean, beanDefinition);
             Method postConstructMethod = beanDefinition.getPostConstructMethod();
             if (postConstructMethod != null) {
                 postConstructMethod.invoke(bean);
             }
-            ioc.put(beanDefinition.getName(), bean);
+            ioc.put(beanDefinition.getName(), loadingIoc.remove(beanDefinition.getName()));
 
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -99,7 +105,6 @@ public class ApplicationContext {
     private void autowiredBean(Object bean, BeanDefinition beanDefinition) throws IllegalAccessException {
         for (Field autowiredField : beanDefinition.getAutowiredFields()) {
             autowiredField.setAccessible(true);
-            Object autowiredBean = null;
             autowiredField.set(bean, getBean(autowiredField.getType()));
         }
     }
