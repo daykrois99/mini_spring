@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.nio.file.FileVisitResult;
@@ -24,6 +25,8 @@ public class ApplicationContext {
 
     private Map<String, Object> ioc = new HashMap<>();
 
+    private List<BeanPostProcessor> beanPostProcessors = new ArrayList<>();
+
     public ApplicationContext(String packageName) throws IOException {
         initContext(packageName);
     }
@@ -31,7 +34,16 @@ public class ApplicationContext {
 
     public void initContext(String packageName) throws IOException {
         scanPackage(packageName).stream().filter(this::scanCreate).forEach(this::wrapper);
+        initBeanPostProcessor();
         beanDefinitionMap.values().forEach(this::createBean);
+    }
+
+    private void initBeanPostProcessor() {
+        beanDefinitionMap.values().stream()
+                .filter(bd -> BeanPostProcessor.class.isAssignableFrom(bd.getBeanType()))
+                .map(this::createBean)
+                .map((bean) -> (BeanPostProcessor) bean)
+                .forEach(beanPostProcessors::add);
     }
 
     protected boolean scanCreate(Class<?> type) {
@@ -90,14 +102,26 @@ public class ApplicationContext {
             bean = constructor.newInstance();
             loadingIoc.put(beanDefinition.getName(), bean);
             autowiredBean(bean, beanDefinition);
-            Method postConstructMethod = beanDefinition.getPostConstructMethod();
-            if (postConstructMethod != null) {
-                postConstructMethod.invoke(bean);
-            }
-            ioc.put(beanDefinition.getName(), loadingIoc.remove(beanDefinition.getName()));
+            bean = initializeBean(bean, beanDefinition);
+            loadingIoc.remove(beanDefinition.getName());
+            ioc.put(beanDefinition.getName(), bean);
 
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+        return bean;
+    }
+
+    private Object initializeBean(Object bean, BeanDefinition beanDefinition) throws InvocationTargetException, IllegalAccessException {
+        for (BeanPostProcessor beanPostProcessor : beanPostProcessors) {
+            bean = beanPostProcessor.beforeInitializeBean(bean, beanDefinition.getName());
+        }
+        Method postConstructMethod = beanDefinition.getPostConstructMethod();
+        if (postConstructMethod != null) {
+            postConstructMethod.invoke(bean);
+        }
+        for (BeanPostProcessor beanPostProcessor : beanPostProcessors) {
+            bean = beanPostProcessor.afterInitializeBean(bean, beanDefinition.getName());
         }
         return bean;
     }

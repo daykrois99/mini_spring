@@ -1,5 +1,6 @@
 package com.example.sub;
 
+import com.example.Autowired;
 import com.example.Component;
 import com.example.PostConstruct;
 
